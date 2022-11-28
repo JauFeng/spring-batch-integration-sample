@@ -1,4 +1,4 @@
-package com.example.springbatchintegrationsample.batch;
+package com.example.springbatchintegrationsample.batch.step;
 
 import org.springframework.batch.core.Job;
 import org.springframework.batch.core.Step;
@@ -8,37 +8,44 @@ import org.springframework.batch.core.job.builder.FlowBuilder;
 import org.springframework.batch.core.job.flow.Flow;
 import org.springframework.batch.repeat.RepeatStatus;
 import org.springframework.context.annotation.Bean;
+import org.springframework.core.task.SimpleAsyncTaskExecutor;
 import org.springframework.stereotype.Component;
 
 /**
- * 简单: Flow.
+ * 并行步骤.
  */
 @Component
-public class FlowJobDemo {
+public class SplitJobDemo {
 
     private final JobBuilderFactory jobBuilderFactory;
     private final StepBuilderFactory stepBuilderFactory;
 
-    public FlowJobDemo(final JobBuilderFactory jobBuilderFactory, final StepBuilderFactory stepBuilderFactory) {
+    public SplitJobDemo(final JobBuilderFactory jobBuilderFactory, final StepBuilderFactory stepBuilderFactory) {
         this.jobBuilderFactory = jobBuilderFactory;
         this.stepBuilderFactory = stepBuilderFactory;
     }
 
     @Bean
-    public Job flowJob() {
-        return jobBuilderFactory.get("flowJob")
-                .start(flow())
-                .next(step3())
+    public Job splitJob() {
+        return jobBuilderFactory.get("splitJob")
+                .start(flow1())
+                .split(new SimpleAsyncTaskExecutor()).add(flow2())  // 并行执行: flow1 & flow2
                 .end()
                 .build();
+
     }
 
 
-    // 创建一个flow对象，包含若干个step
-    private Flow flow() {
-        return new FlowBuilder<Flow>("flow")
+    private Flow flow1() {
+        return new FlowBuilder<Flow>("flow1")
                 .start(step1())
                 .next(step2())
+                .build();
+    }
+
+    private Flow flow2() {
+        return new FlowBuilder<Flow>("flow2")
+                .start(step3())
                 .build();
     }
 
@@ -65,5 +72,4 @@ public class FlowJobDemo {
                     return RepeatStatus.FINISHED;
                 }).build();
     }
-
 }

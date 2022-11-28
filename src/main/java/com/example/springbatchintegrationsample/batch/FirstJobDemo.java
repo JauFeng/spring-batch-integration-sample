@@ -9,6 +9,10 @@ import org.springframework.batch.repeat.RepeatStatus;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
+
+/**
+ * 简单: Job.
+ */
 @Slf4j
 @Component
 public class FirstJobDemo {

@@ -1,16 +1,22 @@
 package com.example.springbatchintegrationsample.batch;
 
+import org.springframework.batch.core.ExitStatus;
 import org.springframework.batch.core.Job;
 import org.springframework.batch.core.Step;
 import org.springframework.batch.core.configuration.annotation.JobBuilderFactory;
 import org.springframework.batch.core.configuration.annotation.StepBuilderFactory;
+import org.springframework.batch.core.job.flow.FlowExecutionStatus;
+import org.springframework.batch.core.job.flow.JobExecutionDecider;
 import org.springframework.batch.repeat.RepeatStatus;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Bean;
 import org.springframework.stereotype.Component;
 
+import java.time.DayOfWeek;
+import java.time.LocalDate;
+
 /**
- * ju
+ * 条件Job.
  */
 @Component
 public class DeciderJobDemo {
@@ -19,16 +25,28 @@ public class DeciderJobDemo {
     private JobBuilderFactory jobBuilderFactory;
     @Autowired
     private StepBuilderFactory stepBuilderFactory;
-    @Autowired
-    private MyDecider myDecider;
+
+
+    private JobExecutionDecider myDecider() {
+        return (jobExecution, stepExecution) -> {
+            final DayOfWeek dayOfWeek = LocalDate.now().getDayOfWeek();
+
+            if (dayOfWeek == DayOfWeek.SATURDAY || dayOfWeek == DayOfWeek.SUNDAY) {
+                return new FlowExecutionStatus("weekend");
+            } else {
+                return new FlowExecutionStatus("workingDay");
+            }
+        };
+    }
 
     @Bean
     public Job deciderJob() {
         return jobBuilderFactory.get("deciderJob")
                 .start(step1())
-                .next(myDecider)
-                .from(myDecider).on("weekend").to(step2())
-                .from(myDecider).on("workingDay").to(step3())
+                .on(ExitStatus.COMPLETED.getExitCode()) // 条件: 执行结果
+                .to(myDecider())    // 条件: JobDecider.
+                .from(myDecider()).on("weekend").to(step2())
+                .from(myDecider()).on("workingDay").to(step3())
                 .from(step3()).on("*").to(step4())
                 .end()
                 .build();

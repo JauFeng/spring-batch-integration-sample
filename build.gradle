@@ -43,7 +43,7 @@ dependencies {
 
     implementation 'org.springframework.batch:spring-batch-integration'
 
-//    implementation 'org.springframework.integration:spring-integration-amqp'
+    implementation 'org.springframework.integration:spring-integration-amqp'
     implementation 'org.springframework.integration:spring-integration-webflux'
     implementation 'org.springframework.integration:spring-integration-http'
     implementation 'org.springframework.integration:spring-integration-jdbc'

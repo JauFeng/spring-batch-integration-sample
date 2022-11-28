@@ -7,12 +7,12 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 
 @SpringBootTest(classes = {SpringBatchIntegrationSampleApplication.class})
-class FirstJobDemoTest {
+class JobDemoTest {
 
     private final FirstJobDemo firstJobDemo;
 
     @Autowired
-    FirstJobDemoTest(final FirstJobDemo firstJobDemo) {
+    JobDemoTest(final FirstJobDemo firstJobDemo) {
         this.firstJobDemo = firstJobDemo;
     }
 
