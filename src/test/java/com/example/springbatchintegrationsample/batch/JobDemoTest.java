@@ -9,16 +9,16 @@ import org.springframework.boot.test.context.SpringBootTest;
 @SpringBootTest(classes = {SpringBatchIntegrationSampleApplication.class})
 class JobDemoTest {
 
-    private final FirstJobDemo firstJobDemo;
+    private final SimpleJobDemo firstJobDemo;
 
     @Autowired
-    JobDemoTest(final FirstJobDemo firstJobDemo) {
+    JobDemoTest(final SimpleJobDemo firstJobDemo) {
         this.firstJobDemo = firstJobDemo;
     }
 
     @Test
     void firstJob() {
-        final Job job = firstJobDemo.firstJob();
+        final Job job = firstJobDemo.simpleJob();
 
 
         System.out.println("Done.");

@@ -15,22 +15,22 @@ import java.util.concurrent.TimeUnit;
 @Configuration
 public class ApplicationConfiguration {
 
-    @Value("thread.pool.core-size")
+    @Value("${thread.pool.core-size:8}")
     private int corePoolSize;
-    @Value("thread.pool.max-size")
+    @Value("${thread.pool.max-size:12}")
     private int maxPoolSize;
-    @Value("thread.pool.keepalive-time-second")
+    @Value("${thread.pool.keepalive-time:60}")
     private long keepAliveTime;
 
-    @Value("host")
+    @Value("${spring.rabbitmq.host}")
     private String host;
-    @Value("port")
+    @Value("${spring.rabbitmq.port}")
     private int port;
-    @Value("username")
+    @Value("${spring.rabbitmq.username}")
     private String username;
-    @Value("password")
+    @Value("${spring.rabbitmq.password}")
     private String password;
-    @Value("virtualHost")
+    @Value("${spring.rabbitmq.virtual-host}")
     private String virtualHost;
 
 

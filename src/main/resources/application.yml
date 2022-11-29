@@ -21,3 +21,9 @@ spring:
         enabled: true
         max-interval: 1000ms
         multiplier: 1
+
+thread:
+  pool:
+    core-size: 8
+    max-size: 12
+    keepalive-time: 60

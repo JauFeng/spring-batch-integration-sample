@@ -2,6 +2,7 @@ package com.example.springbatchintegrationsample.batch;
 
 import org.springframework.batch.core.Job;
 import org.springframework.batch.core.Step;
+import org.springframework.batch.core.configuration.annotation.EnableBatchProcessing;
 import org.springframework.batch.core.configuration.annotation.JobBuilderFactory;
 import org.springframework.batch.core.configuration.annotation.StepBuilderFactory;
 import org.springframework.batch.core.job.builder.FlowBuilder;
@@ -13,6 +14,7 @@ import org.springframework.stereotype.Component;
 /**
  * 简单: Flow.
  */
+@EnableBatchProcessing
 @Component
 public class FlowJobDemo {
 

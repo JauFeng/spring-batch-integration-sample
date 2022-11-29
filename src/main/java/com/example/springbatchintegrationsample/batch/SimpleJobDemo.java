@@ -7,6 +7,7 @@ import org.springframework.batch.core.configuration.annotation.JobBuilderFactory
 import org.springframework.batch.core.configuration.annotation.StepBuilderFactory;
 import org.springframework.batch.repeat.RepeatStatus;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.annotation.Bean;
 import org.springframework.stereotype.Component;
 
 
@@ -15,25 +16,26 @@ import org.springframework.stereotype.Component;
  */
 @Slf4j
 @Component
-public class FirstJobDemo {
+public class SimpleJobDemo {
 
     private final JobBuilderFactory jobBuilderFactory;
     private final StepBuilderFactory stepBuilderFactory;
 
     @Autowired
-    public FirstJobDemo(final JobBuilderFactory jobBuilderFactory, final StepBuilderFactory stepBuilderFactory) {
+    public SimpleJobDemo(final JobBuilderFactory jobBuilderFactory, final StepBuilderFactory stepBuilderFactory) {
         this.jobBuilderFactory = jobBuilderFactory;
         this.stepBuilderFactory = stepBuilderFactory;
     }
 
-    public Job firstJob() {
-        return jobBuilderFactory.get("first-job")
-                .start(firstStep())
+    @Bean
+    public Job simpleJob() {
+        return jobBuilderFactory.get("simple-job")
+                .start(simpleStep())
                 .build();
     }
 
-    private Step firstStep() {
-        return stepBuilderFactory.get("first-step")
+    private Step simpleStep() {
+        return stepBuilderFactory.get("simple-step")
                 .tasklet((contribution, chunkContext) -> {
                     log.info("do something... ");
                     return RepeatStatus.FINISHED;

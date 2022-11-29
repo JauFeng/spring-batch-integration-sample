@@ -16,7 +16,9 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.integration.amqp.dsl.Amqp;
+import org.springframework.integration.amqp.dsl.AmqpInboundChannelAdapterSMLCSpec;
 import org.springframework.integration.amqp.dsl.AmqpOutboundChannelAdapterSpec;
+import org.springframework.integration.amqp.inbound.AmqpInboundChannelAdapter;
 import org.springframework.integration.amqp.outbound.AmqpOutboundEndpoint;
 import org.springframework.integration.channel.DirectChannel;
 import org.springframework.integration.channel.QueueChannel;
@@ -31,12 +33,13 @@ import java.util.List;
 /**
  * 远程分块.
  */
-@EnableBatchIntegration
 @EnableBatchProcessing
+@EnableBatchIntegration
+@Configuration
 public class RemoteChunkingJobConfiguration {
-    private static final String QUEUE_REQUEST = "requests";
+    private static final String QUEUE_REQUEST = "my-requests";
 
-    private static final String QUEUE_REPLY = "replies";
+    private static final String QUEUE_REPLY = "my-replies";
 
 
     /**
@@ -76,7 +79,7 @@ public class RemoteChunkingJobConfiguration {
          */
         @Bean
         public TaskletStep remoteChunkManagerStep() {
-            final List<Integer> source = Arrays.asList(1, 2, 3, 4, 5);
+            final List<Integer> source = Arrays.asList(1, 2, 3, 4, 5, 6, 7, 8, 9, 10);
             final ListItemReader<Integer> itemReader = new ListItemReader<>(source);
 
             return this.remoteChunkingManagerStepBuilderFactory.get("remoteChunkManagerStep")
@@ -92,11 +95,11 @@ public class RemoteChunkingJobConfiguration {
          */
         @Bean
         public IntegrationFlow managerOutboundFlow() {
-            final MessageHandlerSpec<AmqpOutboundChannelAdapterSpec, AmqpOutboundEndpoint> outboundAdapter =
+            final MessageHandlerSpec<AmqpOutboundChannelAdapterSpec, AmqpOutboundEndpoint> outboundChannelAdapter =
                     Amqp.outboundAdapter(rabbitTemplate).routingKey(QUEUE_REQUEST);
 
             return IntegrationFlows.from(managerRequests())
-                    .handle(outboundAdapter)
+                    .handle(outboundChannelAdapter)
                     .get();
         }
 
@@ -105,10 +108,12 @@ public class RemoteChunkingJobConfiguration {
          */
         @Bean
         public IntegrationFlow managerInboundFlow() {
-            final MessageProducerSpec inboundAdapter = Amqp.inboundAdapter(rabbitmqConnectionFactory, QUEUE_REPLY);
+            final MessageProducerSpec<AmqpInboundChannelAdapterSMLCSpec, AmqpInboundChannelAdapter> inboundAdapter =
+                    Amqp.inboundAdapter(rabbitmqConnectionFactory, QUEUE_REPLY);
 
-            return IntegrationFlows.from(managerReplies())
-                    .handle(inboundAdapter)
+            return IntegrationFlows
+                    .from(inboundAdapter)
+                    .channel(managerReplies())
                     .get();
         }
 
@@ -130,10 +135,6 @@ public class RemoteChunkingJobConfiguration {
     @Configuration
     public static class WorkerConfiguration {
 
-        private static final String QUEUE_REQUEST = "requests";
-
-        private static final String QUEUE_REPLY = "replies";
-
         private final RabbitTemplate rabbitTemplate;
 
         private final ConnectionFactory rabbitmqConnectionFactory;
@@ -141,11 +142,11 @@ public class RemoteChunkingJobConfiguration {
         /**
          * 用于配置Work步骤.
          */
-        private final RemoteChunkingWorkerBuilder remoteChunkingWorkerBuilder;
+        private final RemoteChunkingWorkerBuilder<Integer, Integer> remoteChunkingWorkerBuilder;
 
         public WorkerConfiguration(final RabbitTemplate rabbitTemplate,
                                    final ConnectionFactory rabbitmqConnectionFactory,
-                                   final RemoteChunkingWorkerBuilder remoteChunkingWorkerBuilder) {
+                                   final RemoteChunkingWorkerBuilder<Integer, Integer> remoteChunkingWorkerBuilder) {
             this.rabbitTemplate = rabbitTemplate;
             this.rabbitmqConnectionFactory = rabbitmqConnectionFactory;
             this.remoteChunkingWorkerBuilder = remoteChunkingWorkerBuilder;
