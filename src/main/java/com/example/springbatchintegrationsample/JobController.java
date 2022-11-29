@@ -5,7 +5,6 @@ import org.springframework.batch.core.*;
 import org.springframework.batch.core.launch.JobLauncher;
 import org.springframework.batch.core.repository.JobExecutionAlreadyRunningException;
 import org.springframework.batch.core.repository.JobInstanceAlreadyCompleteException;
-import org.springframework.batch.core.repository.JobRepository;
 import org.springframework.batch.core.repository.JobRestartException;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -20,19 +19,24 @@ import java.util.HashMap;
 public class JobController {
 
     private final JobLauncher jobLauncher;
-    private final JobRepository jobRepository;
 
     private final Job simpleJob;
 
+    private final Job remoteChunkingJob;
 
-    public JobController(final Job simpleJob, final JobLauncher jobLauncher, final JobRepository jobRepository) {
+    public JobController(final JobLauncher jobLauncher,
+                         final Job simpleJob,
+                         final Job remoteChunkingJob) {
         this.jobLauncher = jobLauncher;
-        this.jobRepository = jobRepository;
         this.simpleJob = simpleJob;
+        this.remoteChunkingJob = remoteChunkingJob;
     }
 
+    /**
+     * Simple Job.
+     */
     @GetMapping("simple-job")
-    public String job() throws NoSuchAlgorithmException, JobInstanceAlreadyCompleteException, JobExecutionAlreadyRunningException, JobParametersInvalidException, JobRestartException {
+    public String simpleJob() throws NoSuchAlgorithmException, JobInstanceAlreadyCompleteException, JobExecutionAlreadyRunningException, JobParametersInvalidException, JobRestartException {
         // 组装: JobParameters
         final JobParameter jobParameter = new JobParameter(SecureRandom.getInstanceStrong().nextLong(), true);
         final HashMap<String, JobParameter> jobParameterHashMap = new HashMap<>();
@@ -46,9 +50,32 @@ public class JobController {
         final Date startTime = execution.getStartTime();
         final Date endTime = execution.getEndTime();
 
-        log.info("{}", startTime);
-        log.info("{}", endTime);
+        log.info("startTime: {}", startTime);
+        log.info("endTime: {}", endTime);
 
-        return "done";
+        return "success";
+    }
+
+    /**
+     * Remote chunking job.
+     */
+    @GetMapping("remote-chunking-job")
+    public String remoteChunkingJob() throws NoSuchAlgorithmException, JobInstanceAlreadyCompleteException, JobExecutionAlreadyRunningException, JobParametersInvalidException, JobRestartException {
+        // 组装: JobParameters
+        final JobParameter jobParameter = new JobParameter(SecureRandom.getInstanceStrong().nextLong(), true);
+        final HashMap<String, JobParameter> jobParameterHashMap = new HashMap<>();
+        jobParameterHashMap.put("job-id", jobParameter);
+        final JobParameters jobParameters = new JobParameters(jobParameterHashMap);
+
+        final JobExecution execution = jobLauncher.run(remoteChunkingJob, jobParameters);
+
+        // 执行时间
+        final Date startTime = execution.getStartTime();
+        final Date endTime = execution.getEndTime();
+
+        log.info("startTime: {}", startTime);
+        log.info("endTime: {}", endTime);
+
+        return "success";
     }
 }

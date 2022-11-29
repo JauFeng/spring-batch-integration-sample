@@ -1,4 +1,6 @@
 spring:
+  application:
+    name: spring-batch-integration-sample
   batch:
     job:
       enabled: false
