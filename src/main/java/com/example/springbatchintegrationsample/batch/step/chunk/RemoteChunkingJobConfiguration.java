@@ -3,7 +3,7 @@ package com.example.springbatchintegrationsample.batch.step.chunk;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.amqp.rabbit.connection.ConnectionFactory;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
-import org.springframework.batch.core.Job;
+import org.springframework.batch.core.*;
 import org.springframework.batch.core.configuration.annotation.EnableBatchProcessing;
 import org.springframework.batch.core.configuration.annotation.JobBuilderFactory;
 import org.springframework.batch.core.step.tasklet.TaskletStep;
@@ -43,7 +43,6 @@ public class RemoteChunkingJobConfiguration {
 
     private static final String QUEUE_REPLY = "my-replies";
 
-
     /**
      * Manager.
      */
@@ -61,20 +60,39 @@ public class RemoteChunkingJobConfiguration {
 
         private final ConnectionFactory rabbitmqConnectionFactory;
 
+        private final JobExecutionListener myJobExecutionListener;
+
+        private final StepExecution myStepExecution;
+
+        private final ChunkListener myChunkListener;
+
+        private final ItemReadListener myItemReadListener;
+
+        private final ItemProcessListener myItemProcessListener;
+
+        private final ItemWriteListener myItemWriteListener;
+
         @Autowired
         public ManagerConfiguration(final RemoteChunkingManagerStepBuilderFactory remoteChunkingManagerStepBuilderFactory,
                                     final JobBuilderFactory jobBuilderFactory,
                                     final RabbitTemplate rabbitTemplate,
-                                    final ConnectionFactory rabbitmqConnectionFactory) {
+                                    final ConnectionFactory rabbitmqConnectionFactory,
+                                    final JobExecutionListener myJobExecutionListener, final StepExecution myStepExecution, final ChunkListener myChunkListener, final ItemReadListener myItemReadListener, final ItemProcessListener myItemProcessListener, final ItemWriteListener myItemWriteListener) {
             this.remoteChunkingManagerStepBuilderFactory = remoteChunkingManagerStepBuilderFactory;
             this.jobBuilderFactory = jobBuilderFactory;
             this.rabbitTemplate = rabbitTemplate;
             this.rabbitmqConnectionFactory = rabbitmqConnectionFactory;
+            this.myJobExecutionListener = myJobExecutionListener;
+            this.myStepExecution = myStepExecution;
+            this.myChunkListener = myChunkListener;
+            this.myItemReadListener = myItemReadListener;
+            this.myItemProcessListener = myItemProcessListener;
+            this.myItemWriteListener = myItemWriteListener;
         }
 
         @Bean
         public Job remoteChunkingJob() {
-            return jobBuilderFactory.get("remoteChunkingJob").start(remoteChunkManagerStep()).build();
+            return jobBuilderFactory.get("remoteChunkingJob").start(remoteChunkManagerStep()).listener(myJobExecutionListener).build();
         }
 
         /**
@@ -86,10 +104,12 @@ public class RemoteChunkingJobConfiguration {
             final ListItemReader<Integer> itemReader = new ListItemReader<>(source);
 
             return this.remoteChunkingManagerStepBuilderFactory.get("remoteChunkingManagerStep")
+                    .listener(myStepExecution)
                     .chunk(5)
+                    .listener(myChunkListener)
                     .reader(itemReader)
-                    .outputChannel(managerRequests())
-                    .inputChannel(managerReplies())
+                    .outputChannel(managerOutgoingRequestToWorkers())
+                    .inputChannel(managerIncomingRepliesFromWorkers())
                     .build();
         }
 
@@ -101,13 +121,22 @@ public class RemoteChunkingJobConfiguration {
             final MessageHandlerSpec<AmqpOutboundChannelAdapterSpec, AmqpOutboundEndpoint> outboundChannelAdapter =
                     Amqp.outboundAdapter(rabbitTemplate).routingKey(QUEUE_REQUEST);
 
-            return IntegrationFlows.from(managerRequests())
+            return IntegrationFlows
+                    .from(managerOutgoingRequestToWorkers())
                     .handle(outboundChannelAdapter)
                     .get();
         }
 
         /**
-         * 接收消息: Master <- QUEUE_REPLY <- Worker
+         * IntegrationFlow. (Service Activator's DSL)
+         *
+         * <p>
+         * InputChannel -> IntegrationFlow() -> OutputChannel
+         * </p>
+         *
+         * <p>
+         * must be register by <b>{@code @Bean}</b>
+         * </p>
          */
         @Bean
         public IntegrationFlow managerInboundFlow() {
@@ -116,17 +145,27 @@ public class RemoteChunkingJobConfiguration {
 
             return IntegrationFlows
                     .from(inboundAdapter)
-                    .channel(managerReplies())
+                    .channel(managerIncomingRepliesFromWorkers())
                     .get();
         }
 
+        /**
+         * Channel: Outgoing.
+         * <p>
+         * Master -> <b>QUEUE_REQUEST<b/> -> Worker.
+         */
         @Bean
-        public DirectChannel managerRequests() {
+        public DirectChannel managerOutgoingRequestToWorkers() {
             return new DirectChannel();
         }
 
+        /**
+         * Channel: Incoming.
+         * <p>
+         * Worker -> <b>QUEUE_REPLY<b/> -> Master.
+         */
         @Bean
-        public QueueChannel managerReplies() {
+        public QueueChannel managerIncomingRepliesFromWorkers() {
             return new QueueChannel();
         }
     }
@@ -161,15 +200,15 @@ public class RemoteChunkingJobConfiguration {
         @Bean
         public IntegrationFlow workIntegrationFlow() {
             return this.remoteChunkingWorkerBuilder
+                    .inputChannel(workerIncomingRequestsFromManager())
+                    .outputChannel(workerOutgoingRepliesToManager())
                     .itemProcessor(processor())
                     .itemWriter(writer())
-                    .inputChannel(workerRequests())
-                    .outputChannel(workerReplies())
                     .build();
         }
 
         @Bean
-        public DirectChannel workerRequests() {
+        public DirectChannel workerIncomingRequestsFromManager() {
             return new DirectChannel();
         }
 
@@ -178,25 +217,25 @@ public class RemoteChunkingJobConfiguration {
             final MessageProducerSpec<AmqpInboundChannelAdapterSMLCSpec, AmqpInboundChannelAdapter> inboundAdapter =
                     Amqp.inboundAdapter(rabbitmqConnectionFactory, QUEUE_REQUEST);
             return IntegrationFlows.from(inboundAdapter)
-                    .channel(workerRequests())
+                    .channel(workerIncomingRequestsFromManager())
                     .get();
         }
 
         @Bean
-        public DirectChannel workerReplies() {
+        public DirectChannel workerOutgoingRepliesToManager() {
             return new DirectChannel();
         }
 
         @Bean
         public IntegrationFlow workerOutboundFlow() {
-            final MessageHandlerSpec outboundChannelAdapter = Amqp.outboundAdapter(rabbitTemplate).routingKey(QUEUE_REPLY);
+            final MessageHandlerSpec<AmqpOutboundChannelAdapterSpec, AmqpOutboundEndpoint> outboundChannelAdapter =
+                    Amqp.outboundAdapter(rabbitTemplate).routingKey(QUEUE_REPLY);
 
-            return IntegrationFlows.from(workerReplies())
+            return IntegrationFlows.from(workerOutgoingRepliesToManager())
                     .handle(outboundChannelAdapter)
                     .get();
         }
 
-        @Bean
         public ItemProcessor<Integer, Integer> processor() {
             return (item) -> {
                 log.info("process item: {}, worker-{}", item, applicationContext.getApplicationName());
@@ -204,7 +243,6 @@ public class RemoteChunkingJobConfiguration {
             };
         }
 
-        @Bean
         public ItemWriter<Integer> writer() {
             return items -> {
                 for (final Integer item : items) {

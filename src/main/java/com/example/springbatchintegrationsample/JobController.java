@@ -11,8 +11,6 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
-import java.util.Date;
-import java.util.HashMap;
 
 @Slf4j
 @RestController
@@ -38,20 +36,12 @@ public class JobController {
     @GetMapping("simple-job")
     public String simpleJob() throws NoSuchAlgorithmException, JobInstanceAlreadyCompleteException, JobExecutionAlreadyRunningException, JobParametersInvalidException, JobRestartException {
         // 组装: JobParameters
-        final JobParameter jobParameter = new JobParameter(SecureRandom.getInstanceStrong().nextLong(), true);
-        final HashMap<String, JobParameter> jobParameterHashMap = new HashMap<>();
-        jobParameterHashMap.put("job-id", jobParameter);
-        final JobParameters jobParameters = new JobParameters(jobParameterHashMap);
+        final JobParametersBuilder jobParametersBuilder = new JobParametersBuilder();
+        jobParametersBuilder.addString("job-id", String.valueOf(SecureRandom.getInstanceStrong().nextLong()), true);
+        final JobParameters jobParameters = jobParametersBuilder.toJobParameters();
 
         // 启动: Job
         final JobExecution execution = jobLauncher.run(simpleJob, jobParameters);
-
-        // 执行时间
-        final Date startTime = execution.getStartTime();
-        final Date endTime = execution.getEndTime();
-
-        log.info("startTime: {}", startTime);
-        log.info("endTime: {}", endTime);
 
         return "success";
     }
@@ -62,19 +52,11 @@ public class JobController {
     @GetMapping("remote-chunking-job")
     public String remoteChunkingJob() throws NoSuchAlgorithmException, JobInstanceAlreadyCompleteException, JobExecutionAlreadyRunningException, JobParametersInvalidException, JobRestartException {
         // 组装: JobParameters
-        final JobParameter jobParameter = new JobParameter(SecureRandom.getInstanceStrong().nextLong(), true);
-        final HashMap<String, JobParameter> jobParameterHashMap = new HashMap<>();
-        jobParameterHashMap.put("job-id", jobParameter);
-        final JobParameters jobParameters = new JobParameters(jobParameterHashMap);
+        final JobParametersBuilder jobParametersBuilder = new JobParametersBuilder();
+        jobParametersBuilder.addString("job-id", String.valueOf(SecureRandom.getInstanceStrong().nextLong()), true);
+        final JobParameters jobParameters = jobParametersBuilder.toJobParameters();
 
         final JobExecution execution = jobLauncher.run(remoteChunkingJob, jobParameters);
-
-        // 执行时间
-        final Date startTime = execution.getStartTime();
-        final Date endTime = execution.getEndTime();
-
-        log.info("startTime: {}", startTime);
-        log.info("endTime: {}", endTime);
 
         return "success";
     }

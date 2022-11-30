@@ -12,11 +12,11 @@ public class FileMessageToJobRequest {
     private Job job;
     private String fileParameterName;
 
-    public void setFileParameterName(String fileParameterName) {
+    public void setFileParameterName(final String fileParameterName) {
         this.fileParameterName = fileParameterName;
     }
 
-    public void setJob(Job job) {
+    public void setJob(final Job job) {
         this.job = job;
     }
 
