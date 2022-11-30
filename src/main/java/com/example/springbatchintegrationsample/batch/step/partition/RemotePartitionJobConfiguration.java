@@ -45,6 +45,7 @@ import java.util.List;
 @EnableBatchIntegration
 @Configuration
 public class RemotePartitionJobConfiguration {
+
     private static final String QUEUE_REQUEST = "my-requests";
     private static final String QUEUE_REPLY = "my-replies";
 
@@ -98,7 +99,6 @@ public class RemotePartitionJobConfiguration {
         /**
          * 发送消息{@code ChunkRequest}: Master -> QUEUE_REQUEST -> Worker
          */
-        @Bean
         public IntegrationFlow managerOutboundFlow() {
             final MessageHandlerSpec<AmqpOutboundChannelAdapterSpec, AmqpOutboundEndpoint> outboundChannelAdapter =
                     Amqp.outboundAdapter(rabbitTemplate).routingKey(QUEUE_REQUEST);
@@ -111,7 +111,6 @@ public class RemotePartitionJobConfiguration {
         /**
          * 接收消息: Master <- QUEUE_REPLY <- Worker
          */
-        @Bean
         public IntegrationFlow managerInboundFlow() {
             final MessageProducerSpec<AmqpInboundChannelAdapterSMLCSpec, AmqpInboundChannelAdapter> inboundAdapter =
                     Amqp.inboundAdapter(rabbitmqConnectionFactory, QUEUE_REPLY);
@@ -122,12 +121,10 @@ public class RemotePartitionJobConfiguration {
                     .get();
         }
 
-        @Bean
         public DirectChannel managerOutgoingRequestToWorkers() {
             return new DirectChannel();
         }
 
-        @Bean
         public DirectChannel managerIncomingRepliesFromWorkers() {
             return new DirectChannel();
         }
