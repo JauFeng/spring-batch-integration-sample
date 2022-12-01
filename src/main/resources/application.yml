@@ -23,6 +23,11 @@ spring:
         enabled: true
         max-interval: 1000ms
         multiplier: 1
+    queue:
+      chunk-requests: test_chunk_request
+      chunk-replies: test_chunk_replies
+      partition-requests: test_partition_requests
+      partition-replies: test_partition_replies
 
 thread:
   pool:

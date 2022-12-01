@@ -46,8 +46,8 @@ import java.util.List;
 @Configuration
 public class RemotePartitionJobConfiguration {
 
-    private static final String QUEUE_REQUEST = "my-requests";
-    private static final String QUEUE_REPLY = "my-replies";
+    private static final String QUEUE_REQUEST = "test_partition_requests";
+    private static final String QUEUE_REPLY = "test_partition_replies";
 
     /**
      * Manager.
