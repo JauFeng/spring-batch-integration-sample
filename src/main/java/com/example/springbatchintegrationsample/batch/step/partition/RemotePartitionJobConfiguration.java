@@ -3,8 +3,7 @@ package com.example.springbatchintegrationsample.batch.step.partition;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.amqp.rabbit.connection.ConnectionFactory;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
-import org.springframework.batch.core.Job;
-import org.springframework.batch.core.Step;
+import org.springframework.batch.core.*;
 import org.springframework.batch.core.configuration.annotation.EnableBatchProcessing;
 import org.springframework.batch.core.configuration.annotation.JobBuilderFactory;
 import org.springframework.batch.core.configuration.annotation.StepScope;
@@ -20,6 +19,7 @@ import org.springframework.batch.item.ItemWriter;
 import org.springframework.batch.item.support.ListItemReader;
 import org.springframework.batch.repeat.RepeatStatus;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.ApplicationContext;
 import org.springframework.context.annotation.Bean;
@@ -29,7 +29,7 @@ import org.springframework.integration.amqp.dsl.AmqpInboundChannelAdapterSMLCSpe
 import org.springframework.integration.amqp.dsl.AmqpOutboundChannelAdapterSpec;
 import org.springframework.integration.amqp.inbound.AmqpInboundChannelAdapter;
 import org.springframework.integration.amqp.outbound.AmqpOutboundEndpoint;
-import org.springframework.integration.channel.DirectChannel;
+import org.springframework.integration.channel.QueueChannel;
 import org.springframework.integration.dsl.IntegrationFlow;
 import org.springframework.integration.dsl.IntegrationFlows;
 import org.springframework.integration.dsl.MessageHandlerSpec;
@@ -46,15 +46,17 @@ import java.util.List;
 @Configuration
 public class RemotePartitionJobConfiguration {
 
-    private static final String QUEUE_REQUEST = "test_partition_requests";
-    private static final String QUEUE_REPLY = "test_partition_replies";
-
     /**
      * Manager.
      */
     @Slf4j
     @Configuration
-    public static class ManagerConfiguration {
+    public static class RemotePartitionManagerConfiguration {
+        @Value("${spring.rabbitmq.queue.partition-requests}")
+        private String queuePartitionRequests;
+        @Value("${spring.rabbitmq.queue.partition-replies}")
+        private String queuePartitionReplies;
+
         /**
          * 用于配置管理器步骤.
          */
@@ -62,110 +64,148 @@ public class RemotePartitionJobConfiguration {
 
         private final JobBuilderFactory jobBuilderFactory;
 
-        private final RabbitTemplate rabbitTemplate;
-
-        private final ConnectionFactory rabbitmqConnectionFactory;
-
         @Autowired
-        public ManagerConfiguration(final RemotePartitioningManagerStepBuilderFactory remotePartitioningManagerStepBuilderFactory,
-                                    final JobBuilderFactory jobBuilderFactory,
-                                    final RabbitTemplate rabbitTemplate,
-                                    final ConnectionFactory rabbitmqConnectionFactory) {
+        public RemotePartitionManagerConfiguration(final RemotePartitioningManagerStepBuilderFactory remotePartitioningManagerStepBuilderFactory,
+                                                   final JobBuilderFactory jobBuilderFactory) {
             this.remotePartitioningManagerStepBuilderFactory = remotePartitioningManagerStepBuilderFactory;
             this.jobBuilderFactory = jobBuilderFactory;
-            this.rabbitTemplate = rabbitTemplate;
-            this.rabbitmqConnectionFactory = rabbitmqConnectionFactory;
         }
 
+        /**
+         * Job.
+         */
         @Bean
-        public Job remotePartitioningJob() {
-            return jobBuilderFactory.get("remotePartitioningJob").start(remotePartitioningManagerStep()).build();
+        public Job remotePartitioningJob(
+                @Qualifier("myJobExecutionListener") final JobExecutionListener jobExecutionListener,
+                @Qualifier("remotePartitioningManagerStep") final Step remotePartitioningManagerStep) {
+            return jobBuilderFactory.get("remotePartitioningJob")
+                    .start(remotePartitioningManagerStep)
+                    .listener(jobExecutionListener)
+                    .build();
         }
 
         /**
          * Manager Step.
          */
         @Bean
-        public Step remotePartitioningManagerStep() {
+        public Step remotePartitioningManagerStep(
+                @Qualifier("myStepExecutionListener") final StepExecutionListener stepExecutionListener) {
             return this.remotePartitioningManagerStepBuilderFactory.get("remotePartitioningManagerStep")
+                    .listener(stepExecutionListener)
                     .partitioner("workerStep", new SimplePartitioner()) // 分区
                     .gridSize(5)    // 分区大小
                     .pollInterval(1000) // 轮询时间
-                    .outputChannel(managerOutgoingRequestToWorkers())
-                    .inputChannel(managerIncomingRepliesFromWorkers())
+                    .outputChannel(remotePartitioningManagerOutgoingRequestToWorkers())
+                    .inputChannel(remotePartitioningManagerIncomingRepliesFromWorkers())
                     .build();
         }
 
         /**
-         * 发送消息{@code ChunkRequest}: Master -> QUEUE_REQUEST -> Worker
+         * Outbound IntegrationFlow. (Service Activator's DSL)
+         *
+         * <p>[inboundAdapter] -> IntegrationFlow -> channel</p>
+         *
+         * @implSpec <p><b>{@code @Bean}</b> for Register</p>
          */
-        public IntegrationFlow managerOutboundFlow() {
+        @Bean
+        public IntegrationFlow remotePartitioningManagerOutboundFlow(
+                @Qualifier("rabbitTemplate") final RabbitTemplate rabbitTemplate) {
             final MessageHandlerSpec<AmqpOutboundChannelAdapterSpec, AmqpOutboundEndpoint> outboundChannelAdapter =
-                    Amqp.outboundAdapter(rabbitTemplate).routingKey(QUEUE_REQUEST);
+                    Amqp.outboundAdapter(rabbitTemplate).routingKey(queuePartitionRequests);
 
-            return IntegrationFlows.from(managerOutgoingRequestToWorkers())
+            return IntegrationFlows.from(remotePartitioningManagerOutgoingRequestToWorkers())
                     .handle(outboundChannelAdapter)
                     .get();
         }
 
         /**
-         * 接收消息: Master <- QUEUE_REPLY <- Worker
+         * Inbound IntegrationFlow. (Service Activator's DSL)
+         *
+         * <p>[inboundAdapter] -> IntegrationFlow -> channel</p>
+         *
+         * @implSpec <p><b>{@code @Bean}</b> for Register</p>
          */
-        public IntegrationFlow managerInboundFlow() {
+        @Bean
+        public IntegrationFlow remotePartitioningManagerInboundFlow(
+                @Qualifier("rabbitmqConnectionFactory") final ConnectionFactory rabbitmqConnectionFactory) {
             final MessageProducerSpec<AmqpInboundChannelAdapterSMLCSpec, AmqpInboundChannelAdapter> inboundAdapter =
-                    Amqp.inboundAdapter(rabbitmqConnectionFactory, QUEUE_REPLY);
+                    Amqp.inboundAdapter(rabbitmqConnectionFactory, queuePartitionReplies);
 
             return IntegrationFlows
                     .from(inboundAdapter)
-                    .channel(managerIncomingRepliesFromWorkers())
+                    .channel(remotePartitioningManagerIncomingRepliesFromWorkers())
                     .get();
         }
 
-        public DirectChannel managerOutgoingRequestToWorkers() {
-            return new DirectChannel();
+        /**
+         * Channel: Outgoing.
+         * <p>
+         * Master's <b>Outgoing Channel</b> -> queuePartitionRequests.
+         */
+        @Bean
+        public QueueChannel remotePartitioningManagerOutgoingRequestToWorkers() {
+            return new QueueChannel();
         }
 
-        public DirectChannel managerIncomingRepliesFromWorkers() {
-            return new DirectChannel();
+        /**
+         * Channel: Incoming.
+         * <p>
+         * Master's <b>Incoming Channel</b> <- QUEUE_REPLIES.
+         */
+        @Bean
+        public QueueChannel remotePartitioningManagerIncomingRepliesFromWorkers() {
+            return new QueueChannel();
         }
     }
 
 
     /**
      * Worker.
+     *
+     * <p>Step.</p>
+     * <p>Item Reader.</p>
+     * <p> Item Processor.</p>
+     * <p> Item Writer.</p>
      */
     @Slf4j
     @Configuration
-    public static class WorkerConfiguration {
+    public static class RemotePartitionWorkerConfiguration {
+        @Value("${spring.rabbitmq.queue.partition-requests}")
+        private String queuePartitionRequests;
+        @Value("${spring.rabbitmq.queue.partition-replies}")
+        private String queuePartitionReplies;
 
         private final ApplicationContext applicationContext;
-        private final RabbitTemplate rabbitTemplate;
-        private final ConnectionFactory rabbitmqConnectionFactory;
-
         /**
          * 用于配置Work步骤.
          */
         private final RemotePartitioningWorkerStepBuilderFactory remotePartitioningWorkerStepBuilderFactory;
 
-        public WorkerConfiguration(final ApplicationContext applicationContext,
-                                   final RabbitTemplate rabbitTemplate,
-                                   final ConnectionFactory rabbitmqConnectionFactory,
-                                   final RemotePartitioningWorkerStepBuilderFactory remotePartitioningWorkerStepBuilderFactory) {
+        public RemotePartitionWorkerConfiguration(final ApplicationContext applicationContext,
+                                                  final RemotePartitioningWorkerStepBuilderFactory remotePartitioningWorkerStepBuilderFactory) {
             this.applicationContext = applicationContext;
-            this.rabbitTemplate = rabbitTemplate;
-            this.rabbitmqConnectionFactory = rabbitmqConnectionFactory;
             this.remotePartitioningWorkerStepBuilderFactory = remotePartitioningWorkerStepBuilderFactory;
         }
 
+        /**
+         * Step.
+         */
         @Bean
-        public TaskletStep workStep() {
+        public TaskletStep workStep(
+                @Qualifier("myStepExecutionListener") final StepExecutionListener stepExecutionListener,
+                @Qualifier("myChunkListener") final ChunkListener chunkListener) {
             return this.remotePartitioningWorkerStepBuilderFactory.get("remotePartitioningWorkStep")
-                    .inputChannel(workerRequests())
-                    .outputChannel(workerReplies())
+                    .listener(stepExecutionListener)
+                    .inputChannel(remotePartitioningWorkerIncomingRequestsFromManager())
+                    .outputChannel(remotePartitioningWorkerOutgoingRepliesToManager())
                     .tasklet(tasklet(null))
+                    .listener(chunkListener)
                     .build();
         }
 
+        /**
+         * Tasklet.
+         */
         @Bean
         @StepScope
         public Tasklet tasklet(@Value("#{stepExecutionContext['partition']") final String partition) {
@@ -175,43 +215,65 @@ public class RemotePartitionJobConfiguration {
             };
         }
 
-
+        /**
+         * Channel: Incoming.
+         * <p>
+         * Worker's <b>Incoming Channel</b> <- queuePartitionRequestsS.
+         */
         @Bean
-        public DirectChannel workerRequests() {
-            return new DirectChannel();
+        public QueueChannel remotePartitioningWorkerIncomingRequestsFromManager() {
+            return new QueueChannel();
         }
 
+        /**
+         * Channel: Outgoing.
+         * <p>
+         * Master's <b>Outgoing Channel</b> -> QUEUE_REPLIES.
+         */
         @Bean
-        public IntegrationFlow workerInboundFlow() {
+        public QueueChannel remotePartitioningWorkerOutgoingRepliesToManager() {
+            return new QueueChannel();
+        }
+
+        /**
+         * Outbound IntegrationFlow. (Service Activator's DSL)
+         *
+         * <p>[inboundAdapter] -> IntegrationFlow -> channel</p>
+         *
+         * @implSpec <p><b>{@code @Bean}</b> for Register</p>
+         */
+        @Bean
+        public IntegrationFlow remotePartitioningWorkerInboundFlow(
+                @Qualifier("rabbitmqConnectionFactory") final ConnectionFactory rabbitmqConnectionFactory) {
             final MessageProducerSpec<AmqpInboundChannelAdapterSMLCSpec, AmqpInboundChannelAdapter> inboundAdapter =
-                    Amqp.inboundAdapter(rabbitmqConnectionFactory, QUEUE_REQUEST);
+                    Amqp.inboundAdapter(rabbitmqConnectionFactory, queuePartitionRequests);
             return IntegrationFlows.from(inboundAdapter)
-                    .channel(workerRequests())
+                    .channel(remotePartitioningWorkerIncomingRequestsFromManager())
                     .get();
         }
 
+        /**
+         * Outbound IntegrationFlow. (Service Activator's DSL)
+         *
+         * <p>[inboundAdapter] -> IntegrationFlow -> channel</p>
+         *
+         * @implSpec <p><b>{@code @Bean}</b> for Register</p>
+         */
         @Bean
-        public DirectChannel workerReplies() {
-            return new DirectChannel();
-        }
-
-        @Bean
-        public IntegrationFlow workerOutboundFlow() {
+        public IntegrationFlow remotePartitioningWorkerOutboundFlow(@Qualifier("rabbitTemplate") final RabbitTemplate rabbitTemplate) {
             final MessageHandlerSpec<AmqpOutboundChannelAdapterSpec, AmqpOutboundEndpoint> outboundChannelAdapter =
-                    Amqp.outboundAdapter(rabbitTemplate).routingKey(QUEUE_REPLY);
+                    Amqp.outboundAdapter(rabbitTemplate).routingKey(queuePartitionReplies);
 
-            return IntegrationFlows.from(workerReplies())
+            return IntegrationFlows.from(remotePartitioningWorkerOutgoingRepliesToManager())
                     .handle(outboundChannelAdapter)
                     .get();
         }
 
-        @Bean
         public ItemReader<Integer> reader() {
             final List<Integer> source = Arrays.asList(1, 2, 3, 4, 5, 6, 7, 8, 9, 10);
             return new ListItemReader<>(source);
         }
 
-        @Bean
         public ItemProcessor<Integer, Integer> processor() {
             return (item) -> {
                 log.info("process item: {}, worker-{}", item, applicationContext.getApplicationName());
@@ -219,7 +281,6 @@ public class RemotePartitionJobConfiguration {
             };
         }
 
-        @Bean
         public ItemWriter<Integer> writer() {
             return items -> {
                 for (final Integer item : items) {

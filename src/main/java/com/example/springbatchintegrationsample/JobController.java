@@ -22,12 +22,16 @@ public class JobController {
 
     private final Job remoteChunkingJob;
 
+    private final Job remotePartitioningJob;
+
     public JobController(final JobLauncher jobLauncher,
                          final Job simpleJob,
-                         final Job remoteChunkingJob) {
+                         final Job remoteChunkingJob,
+                         final Job remotePartitioningJob) {
         this.jobLauncher = jobLauncher;
         this.simpleJob = simpleJob;
         this.remoteChunkingJob = remoteChunkingJob;
+        this.remotePartitioningJob = remotePartitioningJob;
     }
 
     /**
@@ -47,7 +51,7 @@ public class JobController {
     }
 
     /**
-     * Remote chunking job.
+     * Remote Chunking job.
      */
     @GetMapping("remote-chunking-job")
     public String remoteChunkingJob() throws NoSuchAlgorithmException, JobInstanceAlreadyCompleteException, JobExecutionAlreadyRunningException, JobParametersInvalidException, JobRestartException {
@@ -57,6 +61,21 @@ public class JobController {
         final JobParameters jobParameters = jobParametersBuilder.toJobParameters();
 
         final JobExecution execution = jobLauncher.run(remoteChunkingJob, jobParameters);
+
+        return "success";
+    }
+
+    /**
+     * Remote Partitioning job.
+     */
+    @GetMapping("remote-partitioning-job")
+    public String remotePartitioningJob() throws NoSuchAlgorithmException, JobInstanceAlreadyCompleteException, JobExecutionAlreadyRunningException, JobParametersInvalidException, JobRestartException {
+        // 组装: JobParameters
+        final JobParametersBuilder jobParametersBuilder = new JobParametersBuilder();
+        jobParametersBuilder.addString("job-id", String.valueOf(SecureRandom.getInstanceStrong().nextLong()), true);
+        final JobParameters jobParameters = jobParametersBuilder.toJobParameters();
+
+        final JobExecution execution = jobLauncher.run(remotePartitioningJob, jobParameters);
 
         return "success";
     }
