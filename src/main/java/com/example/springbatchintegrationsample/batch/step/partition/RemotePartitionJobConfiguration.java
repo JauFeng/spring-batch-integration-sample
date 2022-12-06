@@ -7,12 +7,13 @@ import org.springframework.batch.core.*;
 import org.springframework.batch.core.configuration.annotation.EnableBatchProcessing;
 import org.springframework.batch.core.configuration.annotation.JobBuilderFactory;
 import org.springframework.batch.core.configuration.annotation.StepScope;
-import org.springframework.batch.core.partition.support.SimplePartitioner;
+import org.springframework.batch.core.partition.support.Partitioner;
 import org.springframework.batch.core.step.tasklet.Tasklet;
 import org.springframework.batch.core.step.tasklet.TaskletStep;
 import org.springframework.batch.integration.config.annotation.EnableBatchIntegration;
 import org.springframework.batch.integration.partition.RemotePartitioningManagerStepBuilderFactory;
 import org.springframework.batch.integration.partition.RemotePartitioningWorkerStepBuilderFactory;
+import org.springframework.batch.item.ExecutionContext;
 import org.springframework.batch.item.ItemProcessor;
 import org.springframework.batch.item.ItemReader;
 import org.springframework.batch.item.ItemWriter;
@@ -21,7 +22,6 @@ import org.springframework.batch.repeat.RepeatStatus;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.context.ApplicationContext;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.integration.amqp.dsl.Amqp;
@@ -34,9 +34,15 @@ import org.springframework.integration.dsl.IntegrationFlow;
 import org.springframework.integration.dsl.IntegrationFlows;
 import org.springframework.integration.dsl.MessageHandlerSpec;
 import org.springframework.integration.dsl.MessageProducerSpec;
+import org.springframework.util.Assert;
 
+import java.net.InetAddress;
 import java.util.Arrays;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 /**
  * 远程分区: Partitioning.
@@ -92,12 +98,20 @@ public class RemotePartitionJobConfiguration {
                 @Qualifier("myStepExecutionListener") final StepExecutionListener stepExecutionListener) {
             return this.remotePartitioningManagerStepBuilderFactory.get("remotePartitioningManagerStep")
                     .listener(stepExecutionListener)
-                    .partitioner("workerStep", new SimplePartitioner()) // 分区
+                    .partitioner("remotePartitionWorkStep", // 分区
+                            myRemotePartitionPartitioner())  // Partitioner.
                     .gridSize(5)    // 分区大小
                     .pollInterval(1000) // 轮询时间
                     .outputChannel(remotePartitioningManagerOutgoingRequestToWorkers())
                     .inputChannel(remotePartitioningManagerIncomingRepliesFromWorkers())
                     .build();
+        }
+
+        @Bean
+        public Partitioner myRemotePartitionPartitioner() {
+            List<String> ids = Arrays.asList("1", "2", "3", "4", "5", "6", "7", "8", "9", "10");
+
+            return new MyRemotePartitionPartitioner(ids);
         }
 
         /**
@@ -175,15 +189,12 @@ public class RemotePartitionJobConfiguration {
         @Value("${spring.rabbitmq.queue.partition-replies}")
         private String queuePartitionReplies;
 
-        private final ApplicationContext applicationContext;
         /**
          * 用于配置Work步骤.
          */
         private final RemotePartitioningWorkerStepBuilderFactory remotePartitioningWorkerStepBuilderFactory;
 
-        public RemotePartitionWorkerConfiguration(final ApplicationContext applicationContext,
-                                                  final RemotePartitioningWorkerStepBuilderFactory remotePartitioningWorkerStepBuilderFactory) {
-            this.applicationContext = applicationContext;
+        public RemotePartitionWorkerConfiguration(final RemotePartitioningWorkerStepBuilderFactory remotePartitioningWorkerStepBuilderFactory) {
             this.remotePartitioningWorkerStepBuilderFactory = remotePartitioningWorkerStepBuilderFactory;
         }
 
@@ -191,26 +202,34 @@ public class RemotePartitionJobConfiguration {
          * Step.
          */
         @Bean
-        public TaskletStep workStep(
+        public TaskletStep remotePartitionWorkStep(
                 @Qualifier("myStepExecutionListener") final StepExecutionListener stepExecutionListener,
                 @Qualifier("myChunkListener") final ChunkListener chunkListener) {
             return this.remotePartitioningWorkerStepBuilderFactory.get("remotePartitioningWorkStep")
                     .listener(stepExecutionListener)
                     .inputChannel(remotePartitioningWorkerIncomingRequestsFromManager())
                     .outputChannel(remotePartitioningWorkerOutgoingRepliesToManager())
-                    .tasklet(tasklet(null))
+                    // 1. do read + process + write by self.
+                    // .chunk(5)
+                    // .reader(reader())
+                    // .processor(processor())
+                    // .writer(writer())
+                    // 2. do tasklet with partition's parameters.
+                    .tasklet(remotePartitionTasklet(null))
                     .listener(chunkListener)
                     .build();
         }
+
+        private String s = "fuck";
 
         /**
          * Tasklet.
          */
         @Bean
         @StepScope
-        public Tasklet tasklet(@Value("#{stepExecutionContext['partition']") final String partition) {
+        public Tasklet remotePartitionTasklet(@Value("#{stepExecutionContext[myRemotePartitionPartitioner.SUB_IDS_KEY]}") final String id) {
             return (contribution, chunkContext) -> {
-                log.info("processing partition: {}", partition);
+                log.info("processing id: {}", id);
                 return RepeatStatus.FINISHED;
             };
         }
@@ -274,19 +293,94 @@ public class RemotePartitionJobConfiguration {
             return new ListItemReader<>(source);
         }
 
-        public ItemProcessor<Integer, Integer> processor() {
+        public ItemProcessor<? super Object, ? super Object> processor() {
             return (item) -> {
-                log.info("process item: {}, worker-{}", item, applicationContext.getApplicationName());
+                log.info("process item: {}, worker: {}", item, InetAddress.getLocalHost().getHostAddress());
                 return item;
             };
         }
 
-        public ItemWriter<Integer> writer() {
+        public ItemWriter<? super Object> writer() {
             return items -> {
-                for (final Integer item : items) {
-                    log.info("write item: {}, worker-{}", item, applicationContext.getApplicationName());
+                for (final Object item : items) {
+                    log.info("write item: {}, worker: {}", item, InetAddress.getLocalHost().getHostAddress());
                 }
             };
+        }
+    }
+
+    public static class MyRemotePartitionPartitioner implements Partitioner {
+        private static final String PARTITION_KEY = "partition";
+
+        private static final String BEGIN_KEY = "begin";
+        private static final String END_KEY = "end";
+
+        public static final String SUB_IDS_KEY = "sub_ids";
+        public final List<String> ids;
+
+
+        public MyRemotePartitionPartitioner(final List<String> ids) {
+            this.ids = ids;
+        }
+
+        @Override
+        public Map<String, ExecutionContext> partition(final int gridSize) {
+            Assert.notEmpty(ids, "ids must be not empty.");
+
+            final Map<String, ExecutionContext> map = new HashMap<>(gridSize);
+
+
+            final int size = ids.size() / gridSize + 1;
+
+            final List<List<String>> partitiveIds = partition(this.ids, size);
+
+
+            ExecutionContext context;
+            int i = 0;
+            for (final List<String> subIds : partitiveIds) {
+                context = new ExecutionContext();
+
+                context.put(SUB_IDS_KEY, subIds);
+
+                map.put(PARTITION_KEY + i, context);
+
+                i++;
+            }
+
+            return map;
+        }
+
+        /**
+         * 分割列表.
+         *
+         * @param list 列表
+         * @param size 每组大小
+         * @return {@code List<List<String>>}
+         */
+        private static List<List<String>> partition(final List<String> list, final int size) {
+
+            final long partitionCount = partitionCount(list.size(), size);
+
+            List<List<String>> splitList =
+                    Stream.iterate(0, n -> n + 1)
+                            .limit(partitionCount).parallel()
+                            .map(a ->
+                                    list.stream().skip(a * size)
+                                            .limit(size).parallel()
+                                            .collect(Collectors.toList()))
+                            .collect(Collectors.toList());
+
+            return splitList;
+        }
+
+        /**
+         * 计算切片.
+         */
+        private static long partitionCount(final long listSize, final long partitionSize) {
+            Assert.isTrue(listSize > 0, "List size must be greater than 0");
+            Assert.isTrue(partitionSize > 0, "Partition size must be greater than 0");
+
+            return (listSize + partitionSize - 1) / partitionSize;
         }
     }
 }

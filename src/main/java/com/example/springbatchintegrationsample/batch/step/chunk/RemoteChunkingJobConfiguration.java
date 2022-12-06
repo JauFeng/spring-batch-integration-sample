@@ -16,7 +16,6 @@ import org.springframework.batch.item.support.ListItemReader;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.context.ApplicationContext;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.integration.amqp.dsl.Amqp;
@@ -30,6 +29,7 @@ import org.springframework.integration.dsl.IntegrationFlows;
 import org.springframework.integration.dsl.MessageHandlerSpec;
 import org.springframework.integration.dsl.MessageProducerSpec;
 
+import java.net.InetAddress;
 import java.util.Arrays;
 import java.util.List;
 
@@ -40,6 +40,7 @@ import java.util.List;
 @EnableBatchIntegration
 @Configuration
 public class RemoteChunkingJobConfiguration {
+
     /**
      * Manager.
      */
@@ -197,16 +198,12 @@ public class RemoteChunkingJobConfiguration {
         @Value("${spring.rabbitmq.queue.chunk-replies}")
         private String queueChunkReplies;
 
-        private final ApplicationContext applicationContext;
-
         /**
          * 用于配置Work步骤.
          */
         private final RemoteChunkingWorkerBuilder<Integer, Integer> remoteChunkingWorkerBuilder;
 
-        public RemoteChunkingWorkerConfiguration(final ApplicationContext applicationContext,
-                                                 final RemoteChunkingWorkerBuilder<Integer, Integer> remoteChunkingWorkerBuilder) {
-            this.applicationContext = applicationContext;
+        public RemoteChunkingWorkerConfiguration(final RemoteChunkingWorkerBuilder<Integer, Integer> remoteChunkingWorkerBuilder) {
             this.remoteChunkingWorkerBuilder = remoteChunkingWorkerBuilder;
         }
 
@@ -279,7 +276,7 @@ public class RemoteChunkingJobConfiguration {
 
         public ItemProcessor<Integer, Integer> processor() {
             return (item) -> {
-                log.info("process item: {}, worker-{}", item, applicationContext.getApplicationName());
+                log.info("process item: {}, worker: {}", item, InetAddress.getLocalHost().getHostAddress());
                 return item;
             };
         }
@@ -287,7 +284,7 @@ public class RemoteChunkingJobConfiguration {
         public ItemWriter<Integer> writer() {
             return items -> {
                 for (final Integer item : items) {
-                    log.info("write item: {}, worker-{}", item, applicationContext.getApplicationName());
+                    log.info("write item: {}, worker: {}", item, InetAddress.getLocalHost().getHostAddress());
                 }
             };
         }
